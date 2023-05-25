@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset='utf-8'/>
+        <title>FYP </title>
+        <link rel="stylesheet" href="./index.css">
+        <!-- Vertex Shader script in GLSL -->
+         <script id="vertex-shader" type="x-shader/x-vertex">
+          attribute vec3 position;
+          attribute vec3 normal;
+          attribute vec3 color;
+          attribute vec2 texcoords;
+    
+          varying vec3 vColor;
+          varying vec3 vNormal;
+          varying vec3 vEye;
+          varying vec3 vLight;
+          varying vec3 vLightAxis;
+          varying vec3 vLightWorld;
+          varying vec2 vTexCoords;
+    
+          uniform mat4 viewMatrix;
+          uniform mat4 modelMatrix;
+          uniform mat4 projectionMatrix;
+    
+          struct LightVertexInfo {
+            vec3 position;
+            vec3 direction;
+            int type;
+          };
+    
+          uniform LightVertexInfo LightVertex[4];
+    
+         void main(void) 
+          {
+            vec4 p = vec4(position, 1.0);
+            mat4 vm = viewMatrix * modelMatrix;
+            mat4 pvm = projectionMatrix * vm;
+    
+            // Light Type : DIRECTIONAL
+            if (LightVertex[0].type == 0) 
+            {
+              vLight = -normalize((viewMatrix * vec4(LightVertex[0].direction, 0)).xyz);
+            } 
+            // Light Type : POINT && SPOT
+            else if (LightVertex[0].type == 1 || LightVertex[0].type == 2) 
+            {
+              vec4 mp = modelMatrix * p;
+              vec4 lt = vec4(LightVertex[0].position, 1.0) - mp;
+              vLight = normalize(viewMatrix * lt).xyz;
+              vLightAxis = normalize(viewMatrix * vec4(LightVertex[0].direction, 0.0)).xyz;
+              vLightWorld = lt.xyz;
+            }
+    
+            // Surface normal (We're assuming no scaling)
+            vNormal = normalize((vm * vec4(normal, 0.0)).xyz);
+    
+            // Eye vector
+            vEye = -normalize(vm * p).xyz;
+            
+            // Texture coordinates
+            vTexCoords = texcoords;
+    
+            // Vertex colour
+            vColor = color;
+    
+            // Projected vertex position
+            gl_Position = pvm * p;
+          }
+        </script>
+    
+        <!-- Fragment Shader script in GLSL -->
+        <script id="fragment-shader" type="x-shader/x-vertex">
+            precision mediump float;
+    
+          // Passed from vertex shader
+          varying vec3 vColor;
+          varying vec3 vNormal;
+          varying vec3 vEye;
+          varying vec3 vLight;
+          varying vec3 vLightAxis;
+          varying vec3 vLightWorld;
+          varying vec2 vTexCoords;
+    
+          // Material information
+          uniform float uShininess;
+          uniform vec3 uAmbient;
+          uniform vec3 uDiffuse;
+          uniform vec3 uSpecular;
+          uniform sampler2D uTexture_0;
+    
+          // Light information structure
+          struct LightFragmentInfo {
+            int type;
+            int attenuation;
+    
+            float alpha, beta;
+    
+            vec3 ambient;
+            vec3 diffuse;
+            vec3 specular;
+          };
+    
+          uniform LightFragmentInfo LightFragment[4];
+    
+          float invPi = 0.31840988618;
+          float inv2Pi = 0.15915494409;
+    
+              void main(void) 
+              {
+            vec3 vnLight = normalize(vLight);
+            float vLightDistance = length(vLightWorld);
+    
+            // Compute attenuation
+            float attenuation = 1.0;
+    
+            if (LightFragment[0].type == 1 || LightFragment[0].type == 2) {
+              if (LightFragment[0].attenuation == 1) {
+                attenuation = 1.0 / vLightDistance;
+              } else if (LightFragment[0].attenuation == 2) {
+                attenuation = 1.0 / (vLightDistance * vLightDistance);
+              }
+            }
+    
+            if (LightFragment[0].type == 2) 
+            {
+              float coneAngle = dot(vnLight, -normalize(vLightAxis));
+              coneAngle = max(LightFragment[0].beta, min(LightFragment[0].alpha, coneAngle));
+              coneAngle = (coneAngle - LightFragment[0].beta) / (LightFragment[0].alpha - LightFragment[0].beta);
+              attenuation *= coneAngle;
+            }
+          
+            // Compute reflection vector
+            vec3 vReflect = reflect(vnLight, vNormal);
+    
+            // Reflectivity of components
+            vec3 ambient = LightFragment[0].ambient * uAmbient;
+            vec3 diffuse = LightFragment[0].diffuse * uDiffuse;
+            vec3 specular = LightFragment[0].specular * uSpecular;
+            vec3 rho = texture2D(uTexture_0, vTexCoords.xy).xyz;
+            
+            // Compute phong specular and lambert diffuse
+            float s = pow(max(dot(vReflect, -vEye), 0.0), uShininess) * (uShininess + 2.0) * inv2Pi;
+            float d = max(dot(vNormal, vnLight), 0.0) * invPi;
+    
+            // KB - Color blending has been changed from modulative to additive 
+            //    - Result is saturated to prevent values outside colour valid range
+            //gl_FragColor = vec4(((ambient + d * diffuse + s * specular) * rho * vColor) * attenuation, 1.0);
+            //gl_FragColor = vec4(gl_FragColor.xyz * gl_FragColor.a, gl_FragColor.a);
+            gl_FragColor = vec4(
+              clamp(vColor + ((ambient + diffuse * d + specular * s) * rho * attenuation), vec3(0,0,0), vec3(1,1,1)),
+              1.0
+            );
+          }
+        </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@latest/build/three.js"></script>
+  
+
+    <script type="text/javascript" src="./core/engine.js"></script>
+    <script type="text/javascript" src="./core/startup.js"></script>
+    <script type="text/javascript" src="./core/game.js"></script>
+    <script type="text/javascript" src="./core/input.js"></script>
+    <script type="text/javascript" src="./mapObjects/level.js"></script>
+    <script type="text/javascript" src="./mapObjects/experimentLevel.js"></script>
+    <script type="text/javascript" src="./mapObjects/leaf.js"></script>
+    <script type="text/javascript" src="./mapObjects/room.js"></script>
+    <script type="text/javascript" src="./mapObjects/corridor.js"></script>
+    <script type="text/javascript" src="./mapObjects/tile.js"></script>
+    <script type="text/javascript" src="./mapObjects/playerSpaceship.js"></script>
+    <script type="text/javascript" src="./mapObjects/enemy.js"></script>
+    <script type="text/javascript" src="./mapObjects/gun.js"></script>
+    <script type="text/javascript" src="./mapObjects/enemyGun.js"></script>
+    <script type="text/javascript" src="./mapObjects/bullet.js"></script>
+    <script type="text/javascript" src="./mapObjects/loot.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+    
+      </head>
+      <body style='margin:0px' onload='showPage(1)'>
+
+        <div class="welcome-container">
+          <div class="welcome-page page">
+            <h1>Welcome to Space Shooter</h1>
+            <span>(My name: Liam Scicluna</span>
+            <span>My supervisor: Dr. Sandro Spina)</span>
+            <h5>Please read the <a href="./SpaceShooterParticipantInformationSheet.pdf" download>Participant Information Sheet</a></h5>
+            <h5>If you wish to contact us please feel free to email me on <a href="mailto:liam.scicluna.20@um.edu.mt">liam.scicluna.20@um.edu.mt</a> or Dr. Spina on <a href="mailto:sandro.spina@um.edu.mt">sandro.spina@um.edu.mt</a></h5>
+            <h5>For this experiment you will be playing a game called Space Shooter. The game is a 2D space shooter where you will be controlling a spaceship and shooting enemies spaceships (Further game instructions in the coming pages).</h5>
+            <h5>At the end of the game you are kindly requested to anonymously fill in a questionnaire.</h5>
+            <h5>Press NEXT to read the game controls and further instructions.</h5>
+            <button class="next-btn" onclick="showPage(2)">Next</button>
+          </div>
+          <div class="controls-page page">
+            <h1>Game Controls</h1>
+            <ul>W - To Move Forward</ul>
+            <ul>S - To Move Backward</ul>
+            <ul>A - To Rotate Your Spaceship Anticlockwise</ul>
+            <ul>D - To Rotate Your Spaceship Clockwise</ul>
+            <ul>K - To Shoot</ul>
+            <button class="prev-btn" onclick="showPage(1)">Back</button>
+            <button class="next-btn" onclick="showPage(3)">Next</button>
+          </div>
+          <div class="instructions-page page">
+            <h1>Instructions</h1>
+            <h3>Rules: </h3>
+            <ul>Kill Enemies <img src="./images/enemy1.png" alt="enemy1" style="margin-left: 10px;" width="40" height="40"> to earn points and to locate the key.</ul>
+            <ul>Collect the <img src="./images/key.png" alt="key" style="margin-left: 10px;" width="40" height="40"> and find the door to proceed to the next level.</ul>
+            <ul>Avoid getting hit by enemy bullets <img src="./images/enemyBullet.png" alt="enemyBullet" style="margin-left: 10px;" width="40" height="40"></ul>
+            <ul>Enemies will become active when you start moving.</ul>
+            <h3>Loot: </h3>
+            <ul><img src="./images/healthpack.png" alt="Health Pack" width="40" height="40">Restores 100 health points.</ul>
+            <ul><img src="./images/shield.png" alt="Shield" width="40" height="40">Restores 100 shield points.</ul>
+            <ul><img src="./images/firerate.png" alt="firerate" width="40" height="40">Firerate Boost for 10 seconds.</ul>
+            <ul><img src="./images/damage.png" alt="damage" width="40" height="40">Damage Boost for 10 seconds.</ul>
+            <ul><img src="./images/speed.png" alt="health" width="40" height="40">Speed Boost for 10 seconds.</ul>
+            <button class="prev-btn" onclick="showPage(2)">Back</button>
+            <button class="next-btn" onclick="showPage(4)">Next</button>
+          </div>
+
+          <div class="start-game page">
+            <h1>Start Game</h1>
+            <form onsubmit="spaceShooter(); return false;">
+              <label>
+                <input type="checkbox" id="consent" name="consent" value="consent" required>
+              By checking this box you are agreeing that you have read and understood the <a href="./SpaceShooterParticipantInformationSheet.pdf" download>Participant Information Sheet</a> and give your consent to participate in this experiment.
+              </label>
+              <br>
+              <button class="start-btn" type="submit">Start Game</button>
+            </form>
+            <button class="prev-btn" onclick="showPage(3)">Back</button>
+          </div>
+          
+          <div class="levelPassed-page page" id="levelPassed" style="display: none;">
+            <h1>Level Passed</h1>
+            <ul>Well Done You Have Passed The Level, Click Next To Continue.</ul>
+            <button class="next-btn" onclick="createLevel()">Next Level</button>
+          </div>
+          
+          <div class="levelFailed-page page" id="levelFailed" style="display: none;">
+            <h1>Level Failed</h1>
+            <ul>You Have Failed The Level, Click Next To Proceed To The Next Level.</ul>
+            <button class="next-btn" onclick="reset()">Next Level</button>
+          </div>
+
+          <div class="gameOver-page page" id="gameOver" style="display: none;">
+            <h1>Game Over</h1>
+            <h5 id="finalScoreUsername"></h5>
+            <h5>Thanks for playing Space Shooter, hope you enjoyed it :)</h5>
+            <h5>This is your final score: <span id="finalScoreGameOver"></span></h5>
+            <h5>Please click the link and fill in the <a id="questionnaire" href="">Questionnaire</a></h5>
+        </div>
+
+        </div>
+
+        <canvas id='canvas-cg-lab' style="position: absolute; display: none;">
+        </canvas>
+        <div class="hud-container" id="HUD" style="display: none;">
+          <div class="health_container">
+              <img src="./images/healthpack.png">
+              <span id="health_current" class="health_current"></span>
+          </div>
+          <div class="shield_container">
+              <img src="./images/shield.png">
+              <span id="shield_current" class="shield_current"></span>
+          </div>
+          <div class="score_container">
+            <img src="./images/score.png">
+            <span id="score_current" class="score_current">0</span>
+        </div>
+      </div>
+        <div class="loot-container" id="LOOT" style="display: none;">
+          <div class="loot-row">
+              <img id="healthpack" src="./images/healthpack.png">
+              <img id="shield" src="./images/shield.png">
+              <img id="damage" src="./images/damage.png">
+              <img id="speed" src="./images/speed.png">
+              <img id="firerate" src="./images/firerate.png">
+              <img id="key" src="./images/key.png">
+          </div>
+      </div>
+
+      </body>
+
+</html>
